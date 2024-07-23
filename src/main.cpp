@@ -1,75 +1,14 @@
 #include <CLI/CLI.hpp>
-#include <fmt/format.h>
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <ranges>
 #include <string>
 
+#include "formatter.hpp"
 #include "raii.hpp"
 
-using namespace std::string_view_literals;
-
-struct formatter {
-    std::uint64_t values_per_col{16};
-
-protected:
-    std::uint64_t col{};
-};
-
-struct std_array_formatter : public formatter {
-    constexpr auto dependencies() {
-        return fmt::format("#include <array>\n\n");
-    }
-
-    constexpr auto start(const std::string &name, const std::size_t size) {
-        return fmt::format("static constexpr std::array<unsigned char, {}> {}_array = {}", size,
-            name | std::ranges::views::transform([](char v) {
-                return v == '.' ? '_' : v;
-            }) | std::ranges::to<std::string>(),
-            '{');
-    }
-
-    constexpr auto step(const std::uint8_t value) {
-        return fmt::format("{}0x{:02x}, ", (col++ % values_per_col == 0) ? "\n  " : "", value);
-    }
-
-    constexpr auto end() {
-        return fmt::format("\n{};\n", '}');
-    }
-};
-
-struct std_string_view_formatter : public formatter {
-    constexpr auto dependencies() {
-        return fmt::format("#include <string_view>\n\n");
-    }
-
-    constexpr auto start(const std::string &name, const std::size_t) {
-        return fmt::format("static constexpr std::string_view {}_sv =\n",
-            name | std::ranges::views::transform([](char v) {
-                return v == '.' ? '_' : v;
-            }) | std::ranges::to<std::string>());
-    }
-
-    constexpr auto step(const std::uint8_t value) {
-        auto ret = fmt::format("{}\\x{:02x}{}",
-            (col % values_per_col == 0) ? "  \"" : "",
-            value,
-            (col % values_per_col == values_per_col - 1) ? "\"\n" : "");
-        col++;
-        return ret;
-    }
-
-    constexpr auto end() {
-        return fmt::format("{};\n\n", (col++ % values_per_col == 0) ? "" : "\"");
-    }
-
-private:
-    std::uint64_t col{};
-};
-
+template <FormatterConcept Formatter>
 auto process(const std::filesystem::path &path) -> bool {
     raii::open fd(path.c_str(), O_RDONLY);
     if (!fd) return false;
@@ -81,7 +20,7 @@ auto process(const std::filesystem::path &path) -> bool {
     std::size_t readed{};
     ::lseek64(fd, 0, SEEK_SET);
 
-    std_array_formatter formatter;
+    Formatter formatter;
 
     std::string output;
     output.reserve(total * 8 + 4096);
@@ -122,7 +61,7 @@ auto main(int argc, char **argv) -> int {
     }
 
     for (auto &&path : paths)
-        process(path);
+        process<std_array_formatter>(path);
 
     return 0;
 }
